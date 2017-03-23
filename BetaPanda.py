@@ -1,14 +1,136 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Mar 18 10:01:09 2017
+Created on Thu Mar 23 15:37:39 2017
+
+@author: peter
+"""
+
+# -*- coding: utf-8 -*-
+"""
+Created on Sun Mar 19 21:11:18 2017
 
 @author: Elias
 """
 
+import json
 import tensorflow as tf 
 import numpy as np 
 import random
 from collections import deque 
+
+class ataxx:
+    def __init__(self):
+        self.board=np.zeros([7,7],dtype='int64')
+        self.board[0,0]=1
+        self.board[6,6]=1
+        self.board[0,6]=-1
+        self.board[6,0]=-1
+    def put_action(self,action,role):
+        action_take=action[0:2]
+        action_put=action[2:4]
+        terminal=False
+        reward=[0,0]
+        check0=0
+        check1=0
+        ##role=1 means black, role=-1 means white
+        if action==[]:
+            terminal=True
+            self.__init__()
+            for i in range(7):
+                for j in range(7):
+                    if self.board[i,j]==1:
+                        check1+=1
+                    elif self.board[i,j]==-1:
+                        check0+=1
+            reward[0]+=check0-check1
+            reward[1]+=check1-check0
+            return(self.board,reward,terminal)
+        if self.board[action_take[0],action_take[1]]==0:
+            terminal=True
+            self.__init__()
+            reward[(role+1)//2]=-50
+            return(self.board,reward,terminal)
+        if self.board[action_take[0],action_take[1]]!=role:
+            terminal=True
+            self.__init__()
+            reward[(role+1)//2]=-50
+            return(self.board,reward,terminal)
+        if self.board[action_put[0],action_put[1]]!=0:
+            terminal=True
+            self.__init__()
+            reward[(role+1)//2]=-50
+            return(self.board,reward,terminal)
+        if action_put[0]==action_take[0] and action_put[1]==action_take[1]:
+            terminal=True
+            self.__init__()
+            reward[(role+1)//2]=-50
+            return(self.board,reward,terminal)
+        if abs(action_take[0]-action_put[0])<=1 and abs(action_take[1]-action_put[1])<=1:
+            self.board[action_put[0],action_put[1]]=role
+            reward[(role+1)//2]+=1
+        elif abs(action_take[0]-action_put[0])==2 or abs(action_take[1]-action_put[1])==2:
+            self.board[action_take[0],action_take[1]]=0
+            self.board[action_put[0],action_put[1]]=role
+        else:
+            terminal=True
+            self.__init__()
+            reward[(role+1)//2]=-50
+            return(self.board,reward,terminal)
+        for i in [-1,0,1]:
+            for j in [-1,0,1]:
+                try:
+                    if action_put[0]+i>=0 and action_put[1]+j>=0 and self.board[action_put[0]+i,action_put[1]+j]==-role:
+                        self.board[action_put[0]+i,action_put[1]+j]=role
+                        reward[(role+1)//2]+=1
+                        reward[1-(role+1)//2]-=1       
+                except:
+                    pass
+        white_ava=0
+        black_ava=0
+        for i in range(7):
+            for j in range(7):
+                if self.board[i,j]==1:
+                    for a in [-2,-1,0,1,2]:
+                        for b in [-2,-1,0,1,2]:
+                            try:
+                                if 6>=i+a>=0 and 6>=j+b>=0 and self.board[i+a,b+j]==0:
+                                    black_ava+=1
+                            except:
+                                pass
+                elif self.board[i,j]==-1:
+                    for a in [-2,-1,0,1,2]:
+                        for b in [-2,-1,0,1,2]:
+                            try:
+                                if 6>=i+a>=0 and 6>=j+b>=0 and self.board[i+a,b+j]==0:
+                                    white_ava+=1
+                            except:
+                                pass
+        for i in range(7):
+            for j in range(7):
+                if self.board[i,j]==1:
+                    check1+=1
+                elif self.board[i,j]==-1:
+                    check0+=1
+        if white_ava==0 or black_ava==0:
+            terminal=True
+            self.__init__()
+            reward[0]+=check0-check1
+            reward[1]+=check1-check0
+        if check0==0:
+            terminal=True
+            self.__init__()
+            reward[0]=-50
+        elif check1==0:
+            terminal=True
+            self.__init__()
+            reward[1]=-50
+        elif check0+check1==49:
+            terminal=True
+            self.__init__()
+            reward[0]+=check0-check1
+            reward[1]+=check1-check0
+
+        return(self.board,reward,terminal)
 
 ##parameters
 # Hyper Parameters:
@@ -22,13 +144,10 @@ REPLAY_MEMORY = 50000 # number of previous transitions to remember
 BATCH_SIZE = 500 # size of minibatch
 UPDATE_TIME = 100
 
-
-
 ##
 class BrainDQN0:
     def __init__(self,actions):
         # init replay memory
-        self.Recurrent_Time_0=0
         self.replayMemory = deque()
         # init some parameters
         self.timeStep = 0
@@ -43,14 +162,8 @@ class BrainDQN0:
         # saving and loading networks
         self.saver = tf.train.Saver()
         self.session = tf.InteractiveSession()
-        self.session.run(tf.initialize_all_variables())
-        checkpoint = tf.train.get_checkpoint_state("saved_networks0")
-        if checkpoint and checkpoint.model_checkpoint_path:
-            self.saver.restore(self.session, checkpoint.model_checkpoint_path)
-            print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-        else:
-            print ("Could not find old network weights")
-
+        self.saver.restore(self.session, "/data/network0")
+            
     def createQNetwork(self):
         # network weights
         W_conv1 = self.weight_variable([4,4,1,32])
@@ -70,13 +183,13 @@ class BrainDQN0:
         stateInput = tf.placeholder("float",[None,7,7,1])
 
         # hidden layers
-        h_conv1 = tf.nn.tanh(self.conv2d(stateInput,W_conv1,1) + b_conv1)
+        h_conv1 = tf.nn.relu(self.conv2d(stateInput,W_conv1,1) + b_conv1)
   
-        h_conv2 = tf.nn.tanh(self.conv2d(h_conv1,W_conv2,1) + b_conv2)
+        h_conv2 = tf.nn.relu(self.conv2d(h_conv1,W_conv2,1) + b_conv2)
         h_pool2 = self.max_pool_2x2(h_conv2)
               
         h_conv2_flat = tf.reshape(h_pool2,[-1,64])
-        h_fc1 = tf.nn.tanh(tf.matmul(h_conv2_flat,W_fc1) + b_fc1)
+        h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat,W_fc1) + b_fc1)
 
         # Q Value layer
         QValue = tf.matmul(h_fc1,W_fc2) + b_fc2
@@ -92,7 +205,7 @@ class BrainDQN0:
         Q_Action = tf.reduce_sum(tf.multiply(self.QValue, self.actionInput), reduction_indices = 1)
         self.cost = tf.reduce_mean(tf.square(self.yInput - Q_Action))
         self.trainStep = tf.train.AdamOptimizer(1e-6).minimize(self.cost)
-        
+
 
     def trainQNetwork(self):
 
@@ -115,7 +228,7 @@ class BrainDQN0:
                 y_batch.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
         self.trainStep.run(feed_dict={self.yInput : y_batch,self.actionInput : action_batch,self.stateInput : state_batch})
-        print('Cost0:',self.cost.eval(feed_dict={self.yInput : y_batch,self.actionInput : action_batch,self.stateInput : state_batch}))
+
         # save network every 100000 iteration
         if self.timeStep % 10000 == 0:
             self.saver.save(self.session, 'C:/Users/peter/Desktop/Ataxx/saved_networks0/' + 'network' + '-dqn', global_step = self.timeStep)
@@ -136,7 +249,6 @@ class BrainDQN0:
 
         # print info
         state = ""
-
         if self.timeStep <= OBSERVE:
             state = "observe"
         elif self.timeStep > OBSERVE and self.timeStep <= OBSERVE + EXPLORE:
@@ -144,9 +256,9 @@ class BrainDQN0:
         else:
             state = "train"
 
-        print ("TIMESTEP", self.timeStep, "/ STATE", state, \
-        "/ EPSILON", self.epsilon)
-        
+        ##print ("TIMESTEP", self.timeStep, "/ STATE", state, \
+        ##"/ EPSILON", self.epsilon)
+
         self.currentState = newState
         self.timeStep += 1
 
@@ -190,11 +302,11 @@ class BrainDQN0:
     def max_pool_2x2(self,x):
         return tf.nn.max_pool(x, ksize = [1, 2, 2, 1], strides = [1, 1, 1, 1], padding = "VALID")
 
+##
 class BrainDQN1:
     def __init__(self,actions):
         # init replay memory
         self.replayMemory = deque()
-        self.Recurrent_Time_1=0
         # init some parameters
         self.timeStep = 0
         self.epsilon = INITIAL_EPSILON
@@ -208,14 +320,8 @@ class BrainDQN1:
         # saving and loading networks
         self.saver = tf.train.Saver()
         self.session = tf.InteractiveSession()
-        self.session.run(tf.initialize_all_variables())
-        checkpoint = tf.train.get_checkpoint_state("saved_networks1")
-        if checkpoint and checkpoint.model_checkpoint_path:
-            self.saver.restore(self.session, checkpoint.model_checkpoint_path)
-            print ("Successfully loaded:", checkpoint.model_checkpoint_path)
-        else:
-            print ("Could not find old network weights")
-
+        self.saver.restore(self.session,"/data/network1")
+        
     def createQNetwork(self):
         # network weights
         W_conv1 = self.weight_variable([4,4,1,32])
@@ -235,13 +341,13 @@ class BrainDQN1:
         stateInput = tf.placeholder("float",[None,7,7,1])
 
         # hidden layers
-        h_conv1 = tf.nn.tanh(self.conv2d(stateInput,W_conv1,1) + b_conv1)
+        h_conv1 = tf.nn.relu(self.conv2d(stateInput,W_conv1,1) + b_conv1)
   
-        h_conv2 = tf.nn.tanh(self.conv2d(h_conv1,W_conv2,1) + b_conv2)
+        h_conv2 = tf.nn.relu(self.conv2d(h_conv1,W_conv2,1) + b_conv2)
         h_pool2 = self.max_pool_2x2(h_conv2)
               
         h_conv2_flat = tf.reshape(h_pool2,[-1,64])
-        h_fc1 = tf.nn.tanh(tf.matmul(h_conv2_flat,W_fc1) + b_fc1)
+        h_fc1 = tf.nn.relu(tf.matmul(h_conv2_flat,W_fc1) + b_fc1)
 
         # Q Value layer
         QValue = tf.matmul(h_fc1,W_fc2) + b_fc2
@@ -257,7 +363,8 @@ class BrainDQN1:
         Q_Action = tf.reduce_sum(tf.multiply(self.QValue, self.actionInput), reduction_indices = 1)
         self.cost = tf.reduce_mean(tf.square(self.yInput - Q_Action))
         self.trainStep = tf.train.AdamOptimizer(1e-6).minimize(self.cost)
-        
+
+
     def trainQNetwork(self):
 
 		
@@ -279,7 +386,6 @@ class BrainDQN1:
                 y_batch.append(reward_batch[i] + GAMMA * np.max(QValue_batch[i]))
 
         self.trainStep.run(feed_dict={self.yInput : y_batch,self.actionInput : action_batch,self.stateInput : state_batch})
-        print('Cost1:',self.cost.eval(feed_dict={self.yInput : y_batch,self.actionInput : action_batch,self.stateInput : state_batch}))
 
         # save network every 100000 iteration
         if self.timeStep % 10000 == 0:
@@ -298,18 +404,19 @@ class BrainDQN1:
         if self.timeStep > OBSERVE:
             # Train the network
             self.trainQNetwork()
+
         # print info
         state = ""
-
         if self.timeStep <= OBSERVE:
             state = "observe"
         elif self.timeStep > OBSERVE and self.timeStep <= OBSERVE + EXPLORE:
             state = "explore"
         else:
             state = "train"
-        print ("TIMESTEP", self.timeStep, "/ STATE", state, \
-        "/ EPSILON", self.epsilon)
-        
+
+#        print ("TIMESTEP", self.timeStep, "/ STATE", state, \
+#        "/ EPSILON", self.epsilon)
+
         self.currentState = newState
         self.timeStep += 1
 
@@ -352,4 +459,61 @@ class BrainDQN1:
 
     def max_pool_2x2(self,x):
         return tf.nn.max_pool(x, ksize = [1, 2, 2, 1], strides = [1, 1, 1, 1], padding = "VALID")
-		
+
+def main():
+    actions=7*7*7*7
+    json_information=input()
+    information=eval(json_information)
+    request=information['requests']
+    response=information['responses']
+    game=ataxx()
+    observation=game.board.copy()
+    
+    if request[0]=={'x0':-1,'x1':-1,'y0':-1,'y1':-1}:
+        color=1
+        brain=BrainDQN1(actions)
+    else:
+        color=-1
+        brain=BrainDQN0(actions)
+        current=request[0]
+        action_update=[current['y0'],current['x0'],current['y1'],current['x1']]
+        observation,reward,terminal=game.put_action(action_update,-color)
+    if len(response)>=1:
+        for i in range(len(response)):
+            current=response[i]
+            action_update=[current['y0'],current['x0'],current['y1'],current['x1']]
+            observation,reward,terminal=game.put_action(action_update,color)
+            current=request[i+1]
+            action_update=[current['y0'],current['x0'],current['y1'],current['x1']]
+            observation,reward,terminal=game.put_action(action_update,-color)
+    brain.setInitState(observation.reshape([7,7,1]))
+#        observation=np.reshape(observation,[7,7,1])
+#        brain.setPerception(observation,action_update,reward[(color+1)//2],terminal)
+    qvalue=brain.getQValue()
+    avaliable=[]
+    for i in range(7):
+        for j in range(7):
+            if game.board[i,j]==color:
+                for a in [-2,-1,0,1,2]:
+                    for b in [-2,-1,0,1,2]:
+                        try:
+                            if 6>=i+a>=0 and 6>=j+b>=0 and game.board[i+a,j+b]==0:
+                                avaliable.append([i,j,i+a,j+b])
+                        except:
+                            pass
+    values=0
+    my_action=[]
+    for x in avaliable:
+        index=0
+        for i in range(4):
+            index+=x[i]*(7**(3-i))
+        if qvalue[0,index]>values:
+            values=qvalue[0,index]
+            my_action=x.copy()  
+    
+    output=json.dumps({'response':{'y0':my_action[0],'x0':my_action[1],'y1':my_action[2],'x1':my_action[3]}})
+    print(output)
+
+if __name__=='__main__':
+    main()
+        
